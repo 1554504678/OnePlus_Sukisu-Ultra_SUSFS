@@ -1334,146 +1334,171 @@ runs:
           echo "No rejected hunks found"
         fi
 
-        # === Step 2: Fix kernel/core/init.c ===
+        # === Step 2: Fix kernel/core/init.c using Python ===
         INIT_FILE="kernel/core/init.c"
         if [ -f "$INIT_FILE" ]; then
-          echo "=== Fixing init.c ==="
+          echo "=== Fixing init.c with Python ==="
+          python3 << 'PYEOF'
+import os
 
-          # 2a. Restore #include "hook/lsm_hook.h" if it was deleted and lsm_hook_init is still called
-          if grep -q 'ksu_lsm_hook_init()' "$INIT_FILE" && ! grep -q '#include "hook/lsm_hook.h"' "$INIT_FILE"; then
-            echo "Restoring #include \"hook/lsm_hook.h\""
-            sed -i '/^#include "hook\/setuid_hook.h"/i #include "hook/lsm_hook.h"' "$INIT_FILE"
-          fi
+init_file = os.environ.get('INIT_FILE', 'kernel/core/init.c')
+with open(init_file, 'r') as f:
+    content = f.read()
 
-          # 2b. Restore #include "hook/syscall_hook_manager.h" if deleted and functions are still called
-          if grep -q 'ksu_syscall_hook_manager_init\|ksu_syscall_hook_manager_exit' "$INIT_FILE" && ! grep -q '#include "hook/syscall_hook_manager.h"' "$INIT_FILE"; then
-            echo "Restoring #include \"hook/syscall_hook_manager.h\""
-            sed -i '/^#include "hook\/lsm_hook.h"/i #include "hook/syscall_hook_manager.h"' "$INIT_FILE"
-          fi
+original = content
 
-          # 2c. Restore #include "hook/syscall_hook.h" if deleted and ksu_syscall_hook_init is still called
-          if grep -q 'ksu_syscall_hook_init()' "$INIT_FILE" && ! grep -q '#include "hook/syscall_hook.h"' "$INIT_FILE"; then
-            echo "Restoring #include \"hook/syscall_hook.h\""
-            sed -i '/^#include "hook\/syscall_hook_manager.h"/a #include "hook/syscall_hook.h"' "$INIT_FILE"
-          fi
+# Required includes that SUSFS patch may have deleted
+required_includes = [
+    '#include "hook/lsm_hook.h"',
+    '#include "hook/syscall_hook_manager.h"',
+    '#include "hook/syscall_hook.h"',
+    '#include "hook/setuid_hook.h"',
+    '#include "infra/symbol_resolver.h"',
+]
 
-          # 2d. Restore #include "infra/symbol_resolver.h" if deleted and ksu_init_symbol_resolver is still called
-          if grep -q 'ksu_init_symbol_resolver()' "$INIT_FILE" && ! grep -q '#include "infra/symbol_resolver.h"' "$INIT_FILE"; then
-            echo "Restoring #include \"infra/symbol_resolver.h\""
-            sed -i '/^#include "infra\//a #include "infra/symbol_resolver.h"' "$INIT_FILE"
-          fi
+# Add missing includes after the last existing #include line
+missing_includes = []
+for inc in required_includes:
+    if inc not in content:
+        missing_includes.append(inc)
 
-          # 2e. Ensure #include <linux/susfs.h> is present (SUSFS requirement)
-          if [ "${{ env.OP_SUSFS }}" = "true" ]; then
-            if ! grep -q '#include <linux/susfs.h>' "$INIT_FILE"; then
-              echo "Adding #include <linux/susfs.h>"
-              sed -i '/^#include <linux\/moduleparam.h>/a #include <linux/susfs.h>' "$INIT_FILE"
-            fi
-          fi
+if missing_includes:
+    lines = content.split('\n')
+    last_include_idx = 0
+    for i, line in enumerate(lines):
+        if line.strip().startswith('#include'):
+            last_include_idx = i
 
-          # 2f. Restore bool ksu_late_loaded; if deleted
-          if ! grep -q '^bool ksu_late_loaded;' "$INIT_FILE" && grep -q 'ksu_late_loaded' "$INIT_FILE"; then
-            echo "Restoring bool ksu_late_loaded; declaration"
-            if grep -q '^struct cred \*ksu_cred;' "$INIT_FILE"; then
-              sed -i '/^struct cred \*ksu_cred;/a bool ksu_late_loaded;' "$INIT_FILE"
-            elif grep -q '^#define NEED_OWN_STACKPROTECTOR 0' "$INIT_FILE"; then
-              sed -i '/^#define NEED_OWN_STACKPROTECTOR 0/a bool ksu_late_loaded;' "$INIT_FILE"
-            fi
-          fi
+    # Insert missing includes after the last #include line
+    for inc in reversed(missing_includes):
+        lines.insert(last_include_idx + 1, inc)
 
-          # 2g. Ensure susfs_init() is called in kernelsu_init()
-          if [ "${{ env.OP_SUSFS }}" = "true" ]; then
-            if ! grep -q 'susfs_init()' "$INIT_FILE"; then
-              echo "Adding susfs_init() call"
-              # Insert after ksu_init_symbol_resolver() or before ksu_feature_init()
-              if grep -q 'ksu_init_symbol_resolver()' "$INIT_FILE"; then
-                sed -i '/ksu_init_symbol_resolver()/a \\tsusfs_init();' "$INIT_FILE"
-              elif grep -q 'ksu_feature_init()' "$INIT_FILE"; then
-                sed -i '/ksu_feature_init()/i \\tsusfs_init();' "$INIT_FILE"
-              fi
-            fi
-          fi
+    content = '\n'.join(lines)
+    print(f"Added {len(missing_includes)} missing #include lines: {missing_includes}")
 
-          # 2h. Restore ksu_init_symbol_resolver() call if deleted
-          if ! grep -q 'ksu_init_symbol_resolver()' "$INIT_FILE"; then
-            echo "Restoring ksu_init_symbol_resolver() call"
-            if grep -q 'ksu_syscall_hook_init()' "$INIT_FILE"; then
-              sed -i '/ksu_syscall_hook_init()/i \\tksu_init_symbol_resolver();' "$INIT_FILE"
-            elif grep -q 'susfs_init()' "$INIT_FILE"; then
-              sed -i '/susfs_init()/i \\tksu_init_symbol_resolver();' "$INIT_FILE"
-            fi
-          fi
+# Add #include <linux/susfs.h> if missing (SUSFS requirement)
+if '#include <linux/susfs.h>' not in content:
+    lines = content.split('\n')
+    last_include_idx = 0
+    for i, line in enumerate(lines):
+        if line.strip().startswith('#include'):
+            last_include_idx = i
+    lines.insert(last_include_idx + 1, '#include <linux/susfs.h>')
+    content = '\n'.join(lines)
+    print("Added #include <linux/susfs.h>")
 
-          # 2i. Restore ksu_syscall_hook_init() call if deleted
-          if ! grep -q 'ksu_syscall_hook_init()' "$INIT_FILE"; then
-            echo "Restoring ksu_syscall_hook_init() call"
-            if grep -q 'ksu_init_symbol_resolver()' "$INIT_FILE"; then
-              sed -i '/ksu_init_symbol_resolver()/a \\tksu_syscall_hook_init();' "$INIT_FILE"
-            elif grep -q 'ksu_feature_init()' "$INIT_FILE"; then
-              sed -i '/ksu_feature_init()/i \\tksu_syscall_hook_init();' "$INIT_FILE"
-            fi
-          fi
+# Restore bool ksu_late_loaded; if deleted but still referenced
+if 'bool ksu_late_loaded;' not in content and 'ksu_late_loaded' in content:
+    if 'struct cred *ksu_cred;' in content:
+        content = content.replace(
+            'struct cred *ksu_cred;',
+            'struct cred *ksu_cred;\nbool ksu_late_loaded;'
+        )
+        print("Restored bool ksu_late_loaded; after struct cred *ksu_cred;")
+    elif '#define NEED_OWN_STACKPROTECTOR 0' in content:
+        content = content.replace(
+            '#define NEED_OWN_STACKPROTECTOR 0',
+            '#define NEED_OWN_STACKPROTECTOR 0\nbool ksu_late_loaded;'
+        )
+        print("Restored bool ksu_late_loaded; after NEED_OWN_STACKPROTECTOR")
 
-          echo "init.c fixes applied"
-          echo "--- init.c key function calls ---"
-          grep -n "ksu_lsm_hook_init\|ksu_syscall_hook_manager_init\|ksu_syscall_hook_manager_exit\|ksu_init_symbol_resolver\|ksu_syscall_hook_init\|susfs_init\|ksu_late_loaded" "$INIT_FILE" || true
+# Ensure susfs_init() is called in kernelsu_init()
+import re
+if 'susfs_init()' not in content:
+    # Insert before ksu_feature_init()
+    content = content.replace('ksu_feature_init();', 'susfs_init();\n\tksu_feature_init();', 1)
+    print("Added susfs_init() call")
+
+# Restore ksu_init_symbol_resolver() call if deleted
+if 'ksu_init_symbol_resolver()' not in content:
+    if 'ksu_syscall_hook_init()' in content:
+        content = content.replace('ksu_syscall_hook_init();', 'ksu_init_symbol_resolver();\n\tksu_syscall_hook_init();', 1)
+        print("Restored ksu_init_symbol_resolver() call")
+    elif 'susfs_init()' in content:
+        content = content.replace('susfs_init();', 'ksu_init_symbol_resolver();\n\tsusfs_init();', 1)
+        print("Restored ksu_init_symbol_resolver() call before susfs_init()")
+
+# Restore ksu_syscall_hook_init() call if deleted
+if 'ksu_syscall_hook_init()' not in content:
+    if 'ksu_init_symbol_resolver()' in content:
+        content = content.replace('ksu_init_symbol_resolver();', 'ksu_init_symbol_resolver();\n\tksu_syscall_hook_init();', 1)
+        print("Restored ksu_syscall_hook_init() call")
+    elif 'susfs_init()' in content:
+        content = content.replace('susfs_init();', 'ksu_syscall_hook_init();\n\tsusfs_init();', 1)
+        print("Restored ksu_syscall_hook_init() call before susfs_init()")
+
+if content != original:
+    with open(init_file, 'w') as f:
+        f.write(content)
+    print("init.c fixes applied successfully")
+else:
+    print("init.c: no fixes needed")
+
+# Diagnostic: show key lines
+print("--- init.c diagnostics ---")
+for i, line in enumerate(content.split('\n'), 1):
+    if any(kw in line for kw in ['ksu_lsm_hook_init', 'ksu_syscall_hook_manager', 'ksu_init_symbol_resolver', 'ksu_syscall_hook_init', 'susfs_init', 'ksu_late_loaded', 'hook/lsm_hook', 'hook/syscall_hook_manager', 'hook/syscall_hook.h', 'linux/susfs']):
+        print(f"  Line {i}: {line}")
+PYEOF
         fi
 
-        # === Step 3: Fix kernel/Kbuild ===
+        # === Step 3: Fix kernel/Kbuild using Python ===
         KBUILD_FILE="kernel/Kbuild"
         if [ -f "$KBUILD_FILE" ]; then
-          echo "=== Fixing Kbuild ==="
+          echo "=== Fixing Kbuild with Python ==="
+          python3 << 'PYEOF'
+import os
 
-          # Restore hook/lsm_hook.o if removed
-          if ! grep -q 'hook/lsm_hook.o' "$KBUILD_FILE"; then
-            echo "Restoring hook/lsm_hook.o in Kbuild"
-            sed -i '/hook\/setuid_hook.o/i kernelsu-objs += hook/lsm_hook.o' "$KBUILD_FILE"
-          fi
+kbuild_file = os.environ.get('KBUILD_FILE', 'kernel/Kbuild')
+with open(kbuild_file, 'r') as f:
+    content = f.read()
 
-          # Restore hook/syscall_hook_manager.o if removed
-          if ! grep -q 'hook/syscall_hook_manager.o' "$KBUILD_FILE"; then
-            echo "Restoring hook/syscall_hook_manager.o in Kbuild"
-            sed -i '/hook\/setuid_hook.o/a kernelsu-objs += hook/syscall_hook_manager.o' "$KBUILD_FILE"
-          fi
+original = content
 
-          # Restore hook/syscall_event_bridge.o if removed
-          if ! grep -q 'hook/syscall_event_bridge.o' "$KBUILD_FILE"; then
-            echo "Restoring hook/syscall_event_bridge.o in Kbuild"
-            sed -i '/hook\/syscall_hook_manager.o/a kernelsu-objs += hook/syscall_event_bridge.o' "$KBUILD_FILE"
-          fi
+# Required object files that SUSFS patch may have deleted
+required_objs = [
+    'kernelsu-objs += hook/lsm_hook.o',
+    'kernelsu-objs += hook/syscall_hook_manager.o',
+    'kernelsu-objs += hook/syscall_event_bridge.o',
+    'kernelsu-objs += hook/tp_marker.o',
+    'kernelsu-objs += hook/arm64/patch_memory.o',
+    'kernelsu-objs += hook/arm64/syscall_hook.o',
+    'kernelsu-objs += infra/symbol_resolver.o',
+    'kernelsu-objs += kpm/compact.o',
+    'kernelsu-objs += kpm/kpm.o',
+    'kernelsu-objs += kpm/super_access.o',
+]
 
-          # Restore hook/tp_marker.o if removed
-          if ! grep -q 'hook/tp_marker.o' "$KBUILD_FILE"; then
-            echo "Restoring hook/tp_marker.o in Kbuild"
-            sed -i '/hook\/syscall_event_bridge.o/a kernelsu-objs += hook/tp_marker.o' "$KBUILD_FILE"
-          fi
+# Find the last kernelsu-objs line to use as insertion point
+missing_objs = [obj for obj in required_objs if obj not in content]
 
-          # Restore arch-specific hook objects if removed
-          if ! grep -q 'hook/arm64/patch_memory.o' "$KBUILD_FILE"; then
-            echo "Restoring arm64 hook objects in Kbuild"
-            # Find the last hook/ line and add after it
-            LAST_HOOK=$(grep -n '^kernelsu-objs += hook/' "$KBUILD_FILE" | tail -1 | cut -d: -f1)
-            if [ -n "$LAST_HOOK" ]; then
-              sed -i "${LAST_HOOK}a\\kernelsu-objs += hook/arm64/patch_memory.o\nkernelsu-objs += hook/arm64/syscall_hook.o" "$KBUILD_FILE"
-            fi
-          fi
+if missing_objs:
+    lines = content.split('\n')
+    last_objs_idx = 0
+    for i, line in enumerate(lines):
+        if 'kernelsu-objs' in line:
+            last_objs_idx = i
 
-          # Restore infra/symbol_resolver.o if removed
-          if ! grep -q 'infra/symbol_resolver.o' "$KBUILD_FILE"; then
-            echo "Restoring infra/symbol_resolver.o in Kbuild"
-            sed -i '/infra\/su_mount_ns.o/a kernelsu-objs += infra/symbol_resolver.o' "$KBUILD_FILE"
-          fi
+    # Insert missing objects after the last kernelsu-objs line
+    for obj in reversed(missing_objs):
+        lines.insert(last_objs_idx + 1, obj)
 
-          # Ensure KPM objects are included
-          if ! grep -q 'kpm/' "$KBUILD_FILE"; then
-            echo "Adding KPM objects to Kbuild"
-            LAST_OBJ=$(grep -n '^kernelsu-objs' "$KBUILD_FILE" | tail -1 | cut -d: -f1)
-            if [ -n "$LAST_OBJ" ]; then
-              sed -i "${LAST_OBJ}a\\kernelsu-objs += kpm/compact.o\nkernelsu-objs += kpm/kpm.o\nkernelsu-objs += kpm/super_access.o" "$KBUILD_FILE"
-            fi
-          fi
+    content = '\n'.join(lines)
+    print(f"Added {len(missing_objs)} missing object files: {missing_objs}")
 
-          echo "Kbuild fixes applied"
+if content != original:
+    with open(kbuild_file, 'w') as f:
+        f.write(content)
+    print("Kbuild fixes applied successfully")
+else:
+    print("Kbuild: no fixes needed")
+
+# Diagnostic
+print("--- Kbuild diagnostics ---")
+for i, line in enumerate(content.split('\n'), 1):
+    if 'kernelsu-objs' in line:
+        print(f"  Line {i}: {line}")
+PYEOF
         fi
 
         # === Step 4: Fix kernel/Kconfig ===
@@ -1584,29 +1609,21 @@ runs:
         fi
 
         # === Step 5: Fix kernel/feature/selinux_hide.c ===
-        # The SUSFS patch heavily rewrites selinux_hide.c, removing lsm_hook and
-        # symbol_resolver dependencies. If the patch failed on this file, we need
-        # to ensure it's in a compilable state.
+        # The SUSFS patch heavily rewrites selinux_hide.c. If the patch
+        # partially applied, we may have broken includes. Since we restored
+        # all the object files in Kbuild, the includes should be fine as-is.
+        # Only remove includes if the corresponding .o was NOT restored.
         SELINUX_HIDE_FILE="kernel/feature/selinux_hide.c"
-        if [ -f "$SELINUX_HIDE_FILE" ] && [ -f "${SELINUX_HIDE_FILE}.rej" ]; then
-          echo "=== Fixing selinux_hide.c (patch had rejections) ==="
-          # If the patch failed, the file may still reference deleted headers.
-          # Remove references to symbol_resolver and lsm_hook if they cause issues.
-          if grep -q '#include "infra/symbol_resolver.h"' "$SELINUX_HIDE_FILE"; then
-            # Check if symbol_resolver.o is still in Kbuild
-            if ! grep -q 'infra/symbol_resolver.o' "$KBUILD_FILE"; then
-              echo "Removing symbol_resolver.h include from selinux_hide.c"
+        if [ -f "$SELINUX_HIDE_FILE" ]; then
+          echo "=== Checking selinux_hide.c ==="
+          # If symbol_resolver.o is NOT in Kbuild, remove its include
+          if ! grep -q 'infra/symbol_resolver.o' "$KBUILD_FILE" 2>/dev/null; then
+            if grep -q '#include "infra/symbol_resolver.h"' "$SELINUX_HIDE_FILE"; then
+              echo "Removing symbol_resolver.h include from selinux_hide.c (object not in Kbuild)"
               sed -i '/#include "infra\/symbol_resolver.h"/d' "$SELINUX_HIDE_FILE"
             fi
           fi
-          if grep -q '#include "hook/lsm_hook.h"' "$SELINUX_HIDE_FILE"; then
-            echo "Removing lsm_hook.h include from selinux_hide.c"
-            sed -i '/#include "hook\/lsm_hook.h"/d' "$SELINUX_HIDE_FILE"
-          fi
-          if grep -q '#include "hook/patch_memory.h"' "$SELINUX_HIDE_FILE"; then
-            echo "Removing patch_memory.h include from selinux_hide.c"
-            sed -i '/#include "hook\/patch_memory.h"/d' "$SELINUX_HIDE_FILE"
-          fi
+          echo "selinux_hide.c check done"
         fi
 
         # === Step 6: Fix KPM super_access.c for kernel 6.12 ===
