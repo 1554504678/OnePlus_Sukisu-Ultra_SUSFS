@@ -1338,7 +1338,7 @@ runs:
         INIT_FILE="kernel/core/init.c"
         if [ -f "$INIT_FILE" ]; then
           echo "=== Fixing init.c with Python ==="
-          python3 -c '
+          python3 << 'PYEOF'
           import os
           init_file = os.environ.get("INIT_FILE", "kernel/core/init.c")
           with open(init_file, "r") as f:
@@ -1408,14 +1408,14 @@ runs:
           for i, line in enumerate(content.split("\n"), 1):
               if any(kw in line for kw in ["ksu_lsm_hook_init", "ksu_syscall_hook_manager", "ksu_init_symbol_resolver", "ksu_syscall_hook_init", "susfs_init", "ksu_late_loaded", "hook/lsm_hook", "hook/syscall_hook_manager", "hook/syscall_hook.h", "linux/susfs"]):
                   print("  Line " + str(i) + ": " + line)
-          '
+          PYEOF
         fi
 
         # === Step 3: Fix kernel/Kbuild using Python ===
         KBUILD_FILE="kernel/Kbuild"
         if [ -f "$KBUILD_FILE" ]; then
           echo "=== Fixing Kbuild with Python ==="
-          python3 -c '
+          python3 << 'PYEOF'
           import os
           kbuild_file = os.environ.get("KBUILD_FILE", "kernel/Kbuild")
           with open(kbuild_file, "r") as f:
@@ -1454,7 +1454,7 @@ runs:
           for i, line in enumerate(content.split("\n"), 1):
               if "kernelsu-objs" in line:
                   print("  Line " + str(i) + ": " + line)
-          '
+          PYEOF
         fi
 
         # === Step 4: Fix kernel/Kconfig ===
