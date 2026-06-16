@@ -1338,6 +1338,63 @@ runs:
         
         echo "::endgroup::"
 
+    - name: Fix SukiSU Ultra Compatibility
+      shell: bash
+      if: ${{ inputs.ksu_type == 'KSUX' }}
+      run: |
+        set -euo pipefail
+        echo "::group::Fix SukiSU Ultra Compatibility"
+        cd "$KSUX_FOLDER"
+
+        # The SUSFS 10_enable_susfs_for_ksu.patch is designed for KernelSU-Next,
+        # not SukiSU Ultra. It may remove SukiSU Ultra-specific code from init.c.
+        # This step restores the missing code after SUSFS patching.
+
+        if [ -f kernel/core/init.c ]; then
+          echo "Checking init.c for missing SukiSU Ultra code..."
+
+          # 1. Restore #include "hook/syscall_hook_manager.h" if removed by SUSFS patch
+          if ! grep -q 'hook/syscall_hook_manager.h' kernel/core/init.c; then
+            echo "Restoring #include hook/syscall_hook_manager.h"
+            sed -i '/#include "hook\/syscall_hook.h"/a #include "hook/syscall_hook_manager.h"' kernel/core/init.c
+          fi
+
+          # 2. Restore bool ksu_late_loaded; if removed by SUSFS patch
+          # Use module_param line as anchor (appears only once)
+          if ! grep -q 'ksu_late_loaded' kernel/core/init.c; then
+            echo "Restoring bool ksu_late_loaded declaration"
+            sed -i '/module_param(allow_shell, bool, 0);/i bool ksu_late_loaded;' kernel/core/init.c
+          fi
+
+          # 3. Restore ksu_syscall_hook_manager_init() calls if removed by SUSFS patch
+          if ! grep -q 'ksu_syscall_hook_manager_init' kernel/core/init.c; then
+            echo "Restoring ksu_syscall_hook_manager_init() calls"
+            # Add after each ksu_allowlist_init() call
+            sed -i 's/ksu_allowlist_init();/ksu_allowlist_init();\n\t\tksu_syscall_hook_manager_init();/g' kernel/core/init.c
+          fi
+
+          # 4. Restore ksu_syscall_hook_manager_exit() call if removed by SUSFS patch
+          if ! grep -q 'ksu_syscall_hook_manager_exit' kernel/core/init.c; then
+            echo "Restoring ksu_syscall_hook_manager_exit() call"
+            sed -i '/ksu_supercalls_exit()/i\\tksu_syscall_hook_manager_exit();' kernel/core/init.c
+          fi
+
+          echo "init.c compatibility fixes applied"
+        fi
+
+        # Fix KPM super_access.c for kernel 6.12 (cb_mutex removed from netlink_kernel_cfg)
+        if [ -f kernel/kpm/super_access.c ]; then
+          echo "Checking KPM super_access.c for kernel 6.12 compatibility..."
+          if grep -q 'DEFINE_MEMBER(netlink_kernel_cfg, cb_mutex)' kernel/kpm/super_access.c; then
+            echo "Patching cb_mutex for kernel 6.12 compatibility"
+            # Wrap cb_mutex in kernel version check
+            sed -i 's/DEFINE_MEMBER(netlink_kernel_cfg, cb_mutex)/#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 12, 0)\nDEFINE_MEMBER(netlink_kernel_cfg, cb_mutex)\n#endif/' kernel/kpm/super_access.c
+          fi
+        fi
+
+        echo "✅ SukiSU Ultra compatibility fixes applied"
+        echo "::endgroup::"
+
     - name: Add BBG
       if: ${{ env.OP_BBG == 'true' }}
       shell: bash
