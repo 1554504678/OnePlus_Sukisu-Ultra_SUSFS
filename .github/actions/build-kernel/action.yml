@@ -1079,7 +1079,7 @@ runs:
               patch -p1 --forward --fuzz=3 < "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/fix_ksud.c.patch"
             elif [ "${{ inputs.ksu_type }}" = "KSUX" ]; then
               cd "$KSUX_FOLDER"
-              echo "Skipping SUSFS KSU patch for SukiSU Ultra (hooks added in fix step)"
+              patch -p1 --forward --fuzz=3 < "$SUSFS_FOLDER/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch" || true
             else
               cd "$KSU_FOLDER"
               patch -p1 --forward --fuzz=3 < "$SUSFS_FOLDER/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch"
@@ -1096,7 +1096,7 @@ runs:
               patch -p1 --forward < "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/fix_kernel_compat.c.patch"
             elif [ "${{ inputs.ksu_type }}" = "KSUX" ]; then
               cd "$KSUX_FOLDER"
-              echo "Skipping SUSFS KSU patch for SukiSU Ultra (hooks added in fix step)"
+              patch -p1 --forward < "$SUSFS_FOLDER/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch" || true
             else
               cd "$KSU_FOLDER"
               patch -p1 --forward < "$SUSFS_FOLDER/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch"
@@ -1124,7 +1124,7 @@ runs:
               fi
             elif [ "${{ inputs.ksu_type }}" = "KSUX" ]; then
               cd "$KSUX_FOLDER"
-              echo "Skipping SUSFS KSU patch for SukiSU Ultra (hooks added in fix step)"
+              patch -p1 --forward < "$SUSFS_FOLDER/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch" || true
             else
               cd "$KSU_FOLDER"
               patch -p1 --forward < "$SUSFS_FOLDER/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch" || true
@@ -1152,7 +1152,7 @@ runs:
               fi
             elif [ "${{ inputs.ksu_type }}" = "KSUX" ]; then
               cd "$KSUX_FOLDER"
-              echo "Skipping SUSFS KSU patch for SukiSU Ultra (hooks added in fix step)"
+              patch -p1 --forward < "$SUSFS_FOLDER/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch" || true
             else
               cd "$KSU_FOLDER"
               patch -p1 --forward < "$SUSFS_FOLDER/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch" || true
@@ -1303,46 +1303,64 @@ runs:
         echo "::group::Fix SukiSU Ultra Compatibility"
         cd "$KSUX_FOLDER"
 
-        # Since we skipped the SUSFS 10_enable_susfs_for_ksu.patch for KSUX,
-        # SukiSU Ultra's init.c is intact. We just need to add SUSFS hooks manually.
+        # The SUSFS 10_enable_susfs_for_ksu.patch is designed for KernelSU-Next.
+        # It may remove SukiSU Ultra-specific #include directives and declarations.
+        # This step restores them after SUSFS patching.
         if [ -f kernel/core/init.c ]; then
-          echo "Adding SUSFS hooks to SukiSU Ultra init.c..."
+          echo "Fixing init.c for SukiSU Ultra compatibility..."
           python3 << 'PYEOF'
         with open('kernel/core/init.c', 'r') as f:
             content = f.read()
 
         original = content
 
-        # Add #include <linux/ksu_susfs.h> after last #include
-        if 'ksu_susfs' not in content:
+        # 1. Restore #include "hook/lsm_hook.h" if removed by SUSFS patch
+        if '#include "hook/lsm_hook.h"' not in content:
+            print("Restoring #include hook/lsm_hook.h")
             lines = content.split('\n')
             last_include_idx = 0
             for i, line in enumerate(lines):
                 if line.strip().startswith('#include'):
                     last_include_idx = i
-            lines.insert(last_include_idx + 1, '#include <linux/ksu_susfs.h>')
+            lines.insert(last_include_idx + 1, '#include "hook/lsm_hook.h"')
             content = '\n'.join(lines)
 
-        # Add ksu_susfs_init() after ksu_syscall_hook_init()
-        if 'ksu_susfs_init' not in content:
-            content = content.replace(
-                'ksu_syscall_hook_init();',
-                'ksu_syscall_hook_init();\n\tksu_susfs_init();'
-            )
+        # 2. Restore #include "hook/syscall_hook_manager.h" if removed by SUSFS patch
+        if '#include "hook/syscall_hook_manager.h"' not in content:
+            print("Restoring #include hook/syscall_hook_manager.h")
+            lines = content.split('\n')
+            last_include_idx = 0
+            for i, line in enumerate(lines):
+                if line.strip().startswith('#include'):
+                    last_include_idx = i
+            lines.insert(last_include_idx + 1, '#include "hook/syscall_hook_manager.h"')
+            content = '\n'.join(lines)
 
-        # Add ksu_susfs_exit() before ksu_supercalls_exit()
-        if 'ksu_susfs_exit' not in content:
-            content = content.replace(
-                'ksu_supercalls_exit();',
-                'ksu_susfs_exit();\n\tksu_supercalls_exit();'
-            )
+        # 3. Restore bool ksu_late_loaded; if removed by SUSFS patch
+        if 'bool ksu_late_loaded;' not in content:
+            print("Restoring bool ksu_late_loaded declaration")
+            if 'struct cred *ksu_cred;' in content:
+                content = content.replace(
+                    'struct cred *ksu_cred;',
+                    'struct cred *ksu_cred;\nbool ksu_late_loaded;'
+                )
+            elif 'module_param(allow_shell' in content:
+                content = content.replace(
+                    'module_param(allow_shell',
+                    'bool ksu_late_loaded;\nmodule_param(allow_shell'
+                )
+            else:
+                content = content.replace(
+                    '#define NEED_OWN_STACKPROTECTOR 0',
+                    '#define NEED_OWN_STACKPROTECTOR 0\nbool ksu_late_loaded;'
+                )
 
         if content != original:
             with open('kernel/core/init.c', 'w') as f:
                 f.write(content)
-            print("SUSFS hooks added to init.c")
+            print("init.c fixes applied")
         else:
-            print("init.c: no changes needed")
+            print("init.c: no fixes needed")
         PYEOF
         fi
 
