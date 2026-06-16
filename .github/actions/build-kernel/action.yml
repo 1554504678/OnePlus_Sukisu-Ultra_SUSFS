@@ -1346,50 +1346,90 @@ runs:
         echo "::group::Fix SukiSU Ultra Compatibility"
         cd "$KSUX_FOLDER"
 
-        # The SUSFS 10_enable_susfs_for_ksu.patch is designed for KernelSU-Next,
-        # not SukiSU Ultra. It may remove SukiSU Ultra-specific code from init.c.
-        # This step restores the missing code after SUSFS patching.
-
         if [ -f kernel/core/init.c ]; then
-          echo "Checking init.c for missing SukiSU Ultra code..."
+          echo "Fixing init.c for SukiSU Ultra compatibility..."
+          python3 << 'PYEOF'
+        import sys
 
-          # 1. Restore #include "hook/syscall_hook_manager.h" if removed by SUSFS patch
-          if ! grep -q 'hook/syscall_hook_manager.h' kernel/core/init.c; then
-            echo "Restoring #include hook/syscall_hook_manager.h"
-            sed -i '/#include "hook\/syscall_hook.h"/a #include "hook/syscall_hook_manager.h"' kernel/core/init.c
-          fi
+        with open('kernel/core/init.c', 'r') as f:
+            content = f.read()
 
-          # 2. Restore bool ksu_late_loaded; if removed by SUSFS patch
-          # Use module_param line as anchor (appears only once)
-          if ! grep -q 'ksu_late_loaded' kernel/core/init.c; then
-            echo "Restoring bool ksu_late_loaded declaration"
-            sed -i '/module_param(allow_shell, bool, 0);/i bool ksu_late_loaded;' kernel/core/init.c
-          fi
+        original = content
 
-          # 3. Restore ksu_syscall_hook_manager_init() calls if removed by SUSFS patch
-          if ! grep -q 'ksu_syscall_hook_manager_init' kernel/core/init.c; then
-            echo "Restoring ksu_syscall_hook_manager_init() calls"
-            # Add after each ksu_allowlist_init() call
-            sed -i 's/ksu_allowlist_init();/ksu_allowlist_init();\n\t\tksu_syscall_hook_manager_init();/g' kernel/core/init.c
-          fi
+        # 1. Restore #include "hook/syscall_hook_manager.h" if removed by SUSFS patch
+        if 'syscall_hook_manager' not in content:
+            print("Restoring #include hook/syscall_hook_manager.h")
+            lines = content.split('\n')
+            last_include_idx = 0
+            for i, line in enumerate(lines):
+                if line.strip().startswith('#include'):
+                    last_include_idx = i
+            lines.insert(last_include_idx + 1, '#include "hook/syscall_hook_manager.h"')
+            content = '\n'.join(lines)
 
-          # 4. Restore ksu_syscall_hook_manager_exit() call if removed by SUSFS patch
-          if ! grep -q 'ksu_syscall_hook_manager_exit' kernel/core/init.c; then
-            echo "Restoring ksu_syscall_hook_manager_exit() call"
-            sed -i '/ksu_supercalls_exit()/i\\tksu_syscall_hook_manager_exit();' kernel/core/init.c
-          fi
+        # 2. Restore bool ksu_late_loaded; if removed by SUSFS patch
+        if 'ksu_late_loaded' not in content:
+            print("Restoring bool ksu_late_loaded declaration")
+            if 'struct cred *ksu_cred;' in content:
+                content = content.replace(
+                    'struct cred *ksu_cred;',
+                    'struct cred *ksu_cred;\nbool ksu_late_loaded;'
+                )
+            elif 'module_param(allow_shell' in content:
+                content = content.replace(
+                    'module_param(allow_shell',
+                    'bool ksu_late_loaded;\nmodule_param(allow_shell'
+                )
+            else:
+                content = content.replace(
+                    '#define NEED_OWN_STACKPROTECTOR 0',
+                    '#define NEED_OWN_STACKPROTECTOR 0\nbool ksu_late_loaded;'
+                )
 
-          echo "init.c compatibility fixes applied"
+        # 3. Restore ksu_syscall_hook_manager_init() calls if removed by SUSFS patch
+        if 'ksu_syscall_hook_manager_init' not in content:
+            print("Restoring ksu_syscall_hook_manager_init() calls")
+            content = content.replace(
+                'ksu_allowlist_init();',
+                'ksu_allowlist_init();\n\t\tksu_syscall_hook_manager_init();'
+            )
+
+        # 4. Restore ksu_syscall_hook_manager_exit() call if removed by SUSFS patch
+        if 'ksu_syscall_hook_manager_exit' not in content:
+            print("Restoring ksu_syscall_hook_manager_exit() call")
+            content = content.replace(
+                'ksu_supercalls_exit();',
+                'ksu_syscall_hook_manager_exit();\n\tksu_supercalls_exit();'
+            )
+
+        if content != original:
+            with open('kernel/core/init.c', 'w') as f:
+                f.write(content)
+            print("init.c compatibility fixes applied")
+        else:
+            print("init.c: no fixes needed")
+        PYEOF
         fi
 
         # Fix KPM super_access.c for kernel 6.12 (cb_mutex removed from netlink_kernel_cfg)
         if [ -f kernel/kpm/super_access.c ]; then
-          echo "Checking KPM super_access.c for kernel 6.12 compatibility..."
-          if grep -q 'DEFINE_MEMBER(netlink_kernel_cfg, cb_mutex)' kernel/kpm/super_access.c; then
-            echo "Patching cb_mutex for kernel 6.12 compatibility"
-            # Wrap cb_mutex in kernel version check
-            sed -i 's/DEFINE_MEMBER(netlink_kernel_cfg, cb_mutex)/#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 12, 0)\nDEFINE_MEMBER(netlink_kernel_cfg, cb_mutex)\n#endif/' kernel/kpm/super_access.c
-          fi
+          echo "Fixing KPM super_access.c for kernel 6.12 compatibility..."
+          python3 << 'PYEOF'
+        with open('kernel/kpm/super_access.c', 'r') as f:
+            content = f.read()
+
+        if 'DEFINE_MEMBER(netlink_kernel_cfg, cb_mutex)' in content:
+            print("Patching cb_mutex for kernel 6.12 compatibility")
+            content = content.replace(
+                'DEFINE_MEMBER(netlink_kernel_cfg, cb_mutex)',
+                '#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 12, 0)\nDEFINE_MEMBER(netlink_kernel_cfg, cb_mutex)\n#endif'
+            )
+            with open('kernel/kpm/super_access.c', 'w') as f:
+                f.write(content)
+            print("cb_mutex fix applied")
+        else:
+            print("cb_mutex fix not needed")
+        PYEOF
         fi
 
         echo "✅ SukiSU Ultra compatibility fixes applied"
