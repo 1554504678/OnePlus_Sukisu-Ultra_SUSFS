@@ -1079,7 +1079,9 @@ runs:
               patch -p1 --forward --fuzz=3 < "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/fix_ksud.c.patch"
             elif [ "${{ inputs.ksu_type }}" = "KSUX" ]; then
               cd "$KSUX_FOLDER"
+              echo "KSUX: Applying SUSFS patch (allowing partial failures)..."
               patch -p1 --forward --fuzz=3 < "$SUSFS_FOLDER/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch" || true
+              echo "KSUX: SUSFS patch applied, rejected hunks will be fixed in Fix SukiSU Ultra Compatibility step"
             else
               cd "$KSU_FOLDER"
               patch -p1 --forward --fuzz=3 < "$SUSFS_FOLDER/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch"
@@ -1096,7 +1098,9 @@ runs:
               patch -p1 --forward < "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/fix_kernel_compat.c.patch"
             elif [ "${{ inputs.ksu_type }}" = "KSUX" ]; then
               cd "$KSUX_FOLDER"
-              patch -p1 --forward < "$SUSFS_FOLDER/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch" || true
+              echo "KSUX: Applying SUSFS patch (allowing partial failures)..."
+              patch -p1 --forward --fuzz=3 < "$SUSFS_FOLDER/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch" || true
+              echo "KSUX: SUSFS patch applied, rejected hunks will be fixed in Fix SukiSU Ultra Compatibility step"
             else
               cd "$KSU_FOLDER"
               patch -p1 --forward < "$SUSFS_FOLDER/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch"
@@ -1124,7 +1128,9 @@ runs:
               fi
             elif [ "${{ inputs.ksu_type }}" = "KSUX" ]; then
               cd "$KSUX_FOLDER"
-              patch -p1 --forward < "$SUSFS_FOLDER/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch" || true
+              echo "KSUX: Applying SUSFS patch (allowing partial failures)..."
+              patch -p1 --forward --fuzz=3 < "$SUSFS_FOLDER/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch" || true
+              echo "KSUX: SUSFS patch applied, rejected hunks will be fixed in Fix SukiSU Ultra Compatibility step"
             else
               cd "$KSU_FOLDER"
               patch -p1 --forward < "$SUSFS_FOLDER/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch" || true
@@ -1152,7 +1158,9 @@ runs:
               fi
             elif [ "${{ inputs.ksu_type }}" = "KSUX" ]; then
               cd "$KSUX_FOLDER"
-              patch -p1 --forward < "$SUSFS_FOLDER/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch" || true
+              echo "KSUX: Applying SUSFS patch (allowing partial failures)..."
+              patch -p1 --forward --fuzz=3 < "$SUSFS_FOLDER/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch" || true
+              echo "KSUX: SUSFS patch applied, rejected hunks will be fixed in Fix SukiSU Ultra Compatibility step"
             else
               cd "$KSU_FOLDER"
               patch -p1 --forward < "$SUSFS_FOLDER/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch" || true
@@ -1303,87 +1311,318 @@ runs:
         echo "::group::Fix SukiSU Ultra Compatibility"
         cd "$KSUX_FOLDER"
 
-        # The SUSFS 10_enable_susfs_for_ksu.patch is designed for KernelSU-Next.
-        # It may remove SukiSU Ultra-specific #include directives and declarations.
-        # This step restores them after SUSFS patching.
-        if [ -f kernel/core/init.c ]; then
-          echo "Fixing init.c for SukiSU Ultra compatibility..."
-          python3 << 'PYEOF'
-        with open('kernel/core/init.c', 'r') as f:
-            content = f.read()
+        # ================================================================
+        # The SUSFS 10_enable_susfs_for_ksu.patch was applied with --forward
+        # and || true, so some hunks may have failed. We need to:
+        # 1. Clean up .rej files
+        # 2. Restore SukiSU Ultra code that was incorrectly deleted
+        # 3. Ensure SUSFS initialization code is present
+        # 4. Fix Kbuild, Kconfig, and other files
+        # ================================================================
 
-        original = content
-
-        # 1. Restore #include "hook/lsm_hook.h" if removed by SUSFS patch
-        if '#include "hook/lsm_hook.h"' not in content:
-            print("Restoring #include hook/lsm_hook.h")
-            lines = content.split('\n')
-            last_include_idx = 0
-            for i, line in enumerate(lines):
-                if line.strip().startswith('#include'):
-                    last_include_idx = i
-            lines.insert(last_include_idx + 1, '#include "hook/lsm_hook.h"')
-            content = '\n'.join(lines)
-
-        # 2. Restore #include "hook/syscall_hook_manager.h" if removed by SUSFS patch
-        if '#include "hook/syscall_hook_manager.h"' not in content:
-            print("Restoring #include hook/syscall_hook_manager.h")
-            lines = content.split('\n')
-            last_include_idx = 0
-            for i, line in enumerate(lines):
-                if line.strip().startswith('#include'):
-                    last_include_idx = i
-            lines.insert(last_include_idx + 1, '#include "hook/syscall_hook_manager.h"')
-            content = '\n'.join(lines)
-
-        # 3. Restore bool ksu_late_loaded; if removed by SUSFS patch
-        if 'bool ksu_late_loaded;' not in content:
-            print("Restoring bool ksu_late_loaded declaration")
-            if 'struct cred *ksu_cred;' in content:
-                content = content.replace(
-                    'struct cred *ksu_cred;',
-                    'struct cred *ksu_cred;\nbool ksu_late_loaded;'
-                )
-            elif 'module_param(allow_shell' in content:
-                content = content.replace(
-                    'module_param(allow_shell',
-                    'bool ksu_late_loaded;\nmodule_param(allow_shell'
-                )
-            else:
-                content = content.replace(
-                    '#define NEED_OWN_STACKPROTECTOR 0',
-                    '#define NEED_OWN_STACKPROTECTOR 0\nbool ksu_late_loaded;'
-                )
-
-        if content != original:
-            with open('kernel/core/init.c', 'w') as f:
-                f.write(content)
-            print("init.c fixes applied")
-        else:
-            print("init.c: no fixes needed")
-        PYEOF
+        # === Step 1: Report and clean up .rej files ===
+        echo "=== Checking for rejected patch hunks ==="
+        REJ_FILES=$(find kernel -name "*.rej" 2>/dev/null || true)
+        if [ -n "$REJ_FILES" ]; then
+          echo "Rejected hunks found in:"
+          echo "$REJ_FILES"
+          for rej in $REJ_FILES; do
+            echo "--- $rej ---"
+            head -20 "$rej" || true
+          done
+        else
+          echo "No rejected hunks found"
         fi
 
-        # Fix KPM super_access.c for kernel 6.12 (cb_mutex removed from netlink_kernel_cfg)
+        # === Step 2: Fix kernel/core/init.c ===
+        INIT_FILE="kernel/core/init.c"
+        if [ -f "$INIT_FILE" ]; then
+          echo "=== Fixing init.c ==="
+
+          # 2a. Restore #include "hook/lsm_hook.h" if it was deleted and lsm_hook_init is still called
+          if grep -q 'ksu_lsm_hook_init()' "$INIT_FILE" && ! grep -q '#include "hook/lsm_hook.h"' "$INIT_FILE"; then
+            echo "Restoring #include \"hook/lsm_hook.h\""
+            sed -i '/^#include "hook\/setuid_hook.h"/i #include "hook/lsm_hook.h"' "$INIT_FILE"
+          fi
+
+          # 2b. Restore #include "hook/syscall_hook_manager.h" if deleted and functions are still called
+          if grep -q 'ksu_syscall_hook_manager_init\|ksu_syscall_hook_manager_exit' "$INIT_FILE" && ! grep -q '#include "hook/syscall_hook_manager.h"' "$INIT_FILE"; then
+            echo "Restoring #include \"hook/syscall_hook_manager.h\""
+            sed -i '/^#include "hook\/lsm_hook.h"/i #include "hook/syscall_hook_manager.h"' "$INIT_FILE"
+          fi
+
+          # 2c. Restore #include "hook/syscall_hook.h" if deleted and ksu_syscall_hook_init is still called
+          if grep -q 'ksu_syscall_hook_init()' "$INIT_FILE" && ! grep -q '#include "hook/syscall_hook.h"' "$INIT_FILE"; then
+            echo "Restoring #include \"hook/syscall_hook.h\""
+            sed -i '/^#include "hook\/syscall_hook_manager.h"/a #include "hook/syscall_hook.h"' "$INIT_FILE"
+          fi
+
+          # 2d. Restore #include "infra/symbol_resolver.h" if deleted and ksu_init_symbol_resolver is still called
+          if grep -q 'ksu_init_symbol_resolver()' "$INIT_FILE" && ! grep -q '#include "infra/symbol_resolver.h"' "$INIT_FILE"; then
+            echo "Restoring #include \"infra/symbol_resolver.h\""
+            sed -i '/^#include "infra\//a #include "infra/symbol_resolver.h"' "$INIT_FILE"
+          fi
+
+          # 2e. Ensure #include <linux/susfs.h> is present (SUSFS requirement)
+          if [ "${{ env.OP_SUSFS }}" = "true" ]; then
+            if ! grep -q '#include <linux/susfs.h>' "$INIT_FILE"; then
+              echo "Adding #include <linux/susfs.h>"
+              sed -i '/^#include <linux\/moduleparam.h>/a #include <linux/susfs.h>' "$INIT_FILE"
+            fi
+          fi
+
+          # 2f. Restore bool ksu_late_loaded; if deleted
+          if ! grep -q '^bool ksu_late_loaded;' "$INIT_FILE" && grep -q 'ksu_late_loaded' "$INIT_FILE"; then
+            echo "Restoring bool ksu_late_loaded; declaration"
+            if grep -q '^struct cred \*ksu_cred;' "$INIT_FILE"; then
+              sed -i '/^struct cred \*ksu_cred;/a bool ksu_late_loaded;' "$INIT_FILE"
+            elif grep -q '^#define NEED_OWN_STACKPROTECTOR 0' "$INIT_FILE"; then
+              sed -i '/^#define NEED_OWN_STACKPROTECTOR 0/a bool ksu_late_loaded;' "$INIT_FILE"
+            fi
+          fi
+
+          # 2g. Ensure susfs_init() is called in kernelsu_init()
+          if [ "${{ env.OP_SUSFS }}" = "true" ]; then
+            if ! grep -q 'susfs_init()' "$INIT_FILE"; then
+              echo "Adding susfs_init() call"
+              # Insert after ksu_init_symbol_resolver() or before ksu_feature_init()
+              if grep -q 'ksu_init_symbol_resolver()' "$INIT_FILE"; then
+                sed -i '/ksu_init_symbol_resolver()/a \\tsusfs_init();' "$INIT_FILE"
+              elif grep -q 'ksu_feature_init()' "$INIT_FILE"; then
+                sed -i '/ksu_feature_init()/i \\tsusfs_init();' "$INIT_FILE"
+              fi
+            fi
+          fi
+
+          # 2h. Restore ksu_init_symbol_resolver() call if deleted
+          if ! grep -q 'ksu_init_symbol_resolver()' "$INIT_FILE"; then
+            echo "Restoring ksu_init_symbol_resolver() call"
+            if grep -q 'ksu_syscall_hook_init()' "$INIT_FILE"; then
+              sed -i '/ksu_syscall_hook_init()/i \\tksu_init_symbol_resolver();' "$INIT_FILE"
+            elif grep -q 'susfs_init()' "$INIT_FILE"; then
+              sed -i '/susfs_init()/i \\tksu_init_symbol_resolver();' "$INIT_FILE"
+            fi
+          fi
+
+          # 2i. Restore ksu_syscall_hook_init() call if deleted
+          if ! grep -q 'ksu_syscall_hook_init()' "$INIT_FILE"; then
+            echo "Restoring ksu_syscall_hook_init() call"
+            if grep -q 'ksu_init_symbol_resolver()' "$INIT_FILE"; then
+              sed -i '/ksu_init_symbol_resolver()/a \\tksu_syscall_hook_init();' "$INIT_FILE"
+            elif grep -q 'ksu_feature_init()' "$INIT_FILE"; then
+              sed -i '/ksu_feature_init()/i \\tksu_syscall_hook_init();' "$INIT_FILE"
+            fi
+          fi
+
+          echo "init.c fixes applied"
+          echo "--- init.c key function calls ---"
+          grep -n "ksu_lsm_hook_init\|ksu_syscall_hook_manager_init\|ksu_syscall_hook_manager_exit\|ksu_init_symbol_resolver\|ksu_syscall_hook_init\|susfs_init\|ksu_late_loaded" "$INIT_FILE" || true
+        fi
+
+        # === Step 3: Fix kernel/Kbuild ===
+        KBUILD_FILE="kernel/Kbuild"
+        if [ -f "$KBUILD_FILE" ]; then
+          echo "=== Fixing Kbuild ==="
+
+          # Restore hook/lsm_hook.o if removed
+          if ! grep -q 'hook/lsm_hook.o' "$KBUILD_FILE"; then
+            echo "Restoring hook/lsm_hook.o in Kbuild"
+            sed -i '/hook\/setuid_hook.o/i kernelsu-objs += hook/lsm_hook.o' "$KBUILD_FILE"
+          fi
+
+          # Restore hook/syscall_hook_manager.o if removed
+          if ! grep -q 'hook/syscall_hook_manager.o' "$KBUILD_FILE"; then
+            echo "Restoring hook/syscall_hook_manager.o in Kbuild"
+            sed -i '/hook\/setuid_hook.o/a kernelsu-objs += hook/syscall_hook_manager.o' "$KBUILD_FILE"
+          fi
+
+          # Restore hook/syscall_event_bridge.o if removed
+          if ! grep -q 'hook/syscall_event_bridge.o' "$KBUILD_FILE"; then
+            echo "Restoring hook/syscall_event_bridge.o in Kbuild"
+            sed -i '/hook\/syscall_hook_manager.o/a kernelsu-objs += hook/syscall_event_bridge.o' "$KBUILD_FILE"
+          fi
+
+          # Restore hook/tp_marker.o if removed
+          if ! grep -q 'hook/tp_marker.o' "$KBUILD_FILE"; then
+            echo "Restoring hook/tp_marker.o in Kbuild"
+            sed -i '/hook\/syscall_event_bridge.o/a kernelsu-objs += hook/tp_marker.o' "$KBUILD_FILE"
+          fi
+
+          # Restore arch-specific hook objects if removed
+          if ! grep -q 'hook/arm64/patch_memory.o' "$KBUILD_FILE"; then
+            echo "Restoring arm64 hook objects in Kbuild"
+            # Find the last hook/ line and add after it
+            LAST_HOOK=$(grep -n '^kernelsu-objs += hook/' "$KBUILD_FILE" | tail -1 | cut -d: -f1)
+            if [ -n "$LAST_HOOK" ]; then
+              sed -i "${LAST_HOOK}a\\kernelsu-objs += hook/arm64/patch_memory.o\nkernelsu-objs += hook/arm64/syscall_hook.o" "$KBUILD_FILE"
+            fi
+          fi
+
+          # Restore infra/symbol_resolver.o if removed
+          if ! grep -q 'infra/symbol_resolver.o' "$KBUILD_FILE"; then
+            echo "Restoring infra/symbol_resolver.o in Kbuild"
+            sed -i '/infra\/su_mount_ns.o/a kernelsu-objs += infra/symbol_resolver.o' "$KBUILD_FILE"
+          fi
+
+          # Ensure KPM objects are included
+          if ! grep -q 'kpm/' "$KBUILD_FILE"; then
+            echo "Adding KPM objects to Kbuild"
+            LAST_OBJ=$(grep -n '^kernelsu-objs' "$KBUILD_FILE" | tail -1 | cut -d: -f1)
+            if [ -n "$LAST_OBJ" ]; then
+              sed -i "${LAST_OBJ}a\\kernelsu-objs += kpm/compact.o\nkernelsu-objs += kpm/kpm.o\nkernelsu-objs += kpm/super_access.o" "$KBUILD_FILE"
+            fi
+          fi
+
+          echo "Kbuild fixes applied"
+        fi
+
+        # === Step 4: Fix kernel/Kconfig ===
+        KCONFIG_FILE="kernel/Kconfig"
+        if [ -f "$KCONFIG_FILE" ]; then
+          echo "=== Fixing Kconfig ==="
+
+          # Remove KPROBES dependency (SukiSU Ultra uses its own hook system)
+          if grep -q 'depends on KPROBES && EXT4_FS' "$KCONFIG_FILE"; then
+            echo "Removing KPROBES dependency from Kconfig"
+            sed -i 's/depends on KPROBES && EXT4_FS/depends on EXT4_FS/' "$KCONFIG_FILE"
+          fi
+
+          # Add SUSFS Kconfig options if not present
+          if [ "${{ env.OP_SUSFS }}" = "true" ] && ! grep -q 'config KSU_SUSFS' "$KCONFIG_FILE"; then
+            echo "Adding SUSFS Kconfig options"
+            KCONFIG_SUSFS=$(mktemp)
+            cat > "$KCONFIG_SUSFS" << 'KCEOF'
+
+menu "KernelSU - SUSFS"
+config KSU_SUSFS
+	bool "KernelSU addon - SUSFS"
+	depends on KSU
+	depends on THREAD_INFO_IN_TASK
+	default y
+	help
+	  Patch and Enable SUSFS to kernel with KernelSU.
+
+config KSU_SUSFS_SUS_PATH
+	bool "Enable to hide suspicious path"
+	depends on KSU_SUSFS
+	default y
+
+config KSU_SUSFS_HAS_MAGIC_MOUNT
+	bool "SUSFS has magic mount support"
+	depends on KSU_SUSFS
+	default y
+
+config KSU_SUSFS_SUS_MOUNT
+	bool "Enable to hide suspicious mounts"
+	depends on KSU_SUSFS
+	default y
+
+config KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT
+	bool "Auto add KSU default mount to hiding"
+	depends on KSU_SUSFS_SUS_MOUNT
+	default y
+
+config KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT
+	bool "Auto add bind mount to hiding"
+	depends on KSU_SUSFS_SUS_MOUNT
+	default y
+
+config KSU_SUSFS_SUS_KSTAT
+	bool "Enable to spoof suspicious kstat"
+	depends on KSU_SUSFS
+	default y
+
+config KSU_SUSFS_SPOOF_UNAME
+	bool "Enable to spoof uname"
+	depends on KSU_SUSFS
+	default y
+
+config KSU_SUSFS_ENABLE_LOG
+	bool "Enable logging susfs log to kernel"
+	depends on KSU_SUSFS
+	default y
+
+config KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS
+	bool "Enable to automatically hide ksu and susfs symbols"
+	depends on KSU_SUSFS
+	default y
+
+config KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG
+	bool "Enable to spoof /proc/bootconfig or /proc/cmdline"
+	depends on KSU_SUSFS
+	default y
+
+config KSU_SUSFS_OPEN_REDIRECT
+	bool "Enable to redirect a path to be opened with another path"
+	depends on KSU_SUSFS
+	default y
+
+config KSU_SUSFS_SUS_MAP
+	bool "Enable to hide some mmapped real file from proc maps"
+	depends on KSU_SUSFS
+	default y
+
+endmenu
+KCEOF
+            # Insert before the last "endmenu"
+            awk -v susfsfile="$KCONFIG_SUSFS" '
+            /^endmenu/ { last_endmenu = NR }
+            { buf[NR] = $0 }
+            END {
+              for (i = 1; i <= NR; i++) {
+                if (i == last_endmenu) {
+                  while ((getline line < susfsfile) > 0) print line
+                  close(susfsfile)
+                }
+                print buf[i]
+              }
+            }
+            ' "$KCONFIG_FILE" > "${KCONFIG_FILE}.tmp" && mv "${KCONFIG_FILE}.tmp" "$KCONFIG_FILE"
+            rm -f "$KCONFIG_SUSFS"
+            echo "SUSFS Kconfig options added"
+          fi
+        fi
+
+        # === Step 5: Fix kernel/feature/selinux_hide.c ===
+        # The SUSFS patch heavily rewrites selinux_hide.c, removing lsm_hook and
+        # symbol_resolver dependencies. If the patch failed on this file, we need
+        # to ensure it's in a compilable state.
+        SELINUX_HIDE_FILE="kernel/feature/selinux_hide.c"
+        if [ -f "$SELINUX_HIDE_FILE" ] && [ -f "${SELINUX_HIDE_FILE}.rej" ]; then
+          echo "=== Fixing selinux_hide.c (patch had rejections) ==="
+          # If the patch failed, the file may still reference deleted headers.
+          # Remove references to symbol_resolver and lsm_hook if they cause issues.
+          if grep -q '#include "infra/symbol_resolver.h"' "$SELINUX_HIDE_FILE"; then
+            # Check if symbol_resolver.o is still in Kbuild
+            if ! grep -q 'infra/symbol_resolver.o' "$KBUILD_FILE"; then
+              echo "Removing symbol_resolver.h include from selinux_hide.c"
+              sed -i '/#include "infra\/symbol_resolver.h"/d' "$SELINUX_HIDE_FILE"
+            fi
+          fi
+          if grep -q '#include "hook/lsm_hook.h"' "$SELINUX_HIDE_FILE"; then
+            echo "Removing lsm_hook.h include from selinux_hide.c"
+            sed -i '/#include "hook\/lsm_hook.h"/d' "$SELINUX_HIDE_FILE"
+          fi
+          if grep -q '#include "hook/patch_memory.h"' "$SELINUX_HIDE_FILE"; then
+            echo "Removing patch_memory.h include from selinux_hide.c"
+            sed -i '/#include "hook\/patch_memory.h"/d' "$SELINUX_HIDE_FILE"
+          fi
+        fi
+
+        # === Step 6: Fix KPM super_access.c for kernel 6.12 ===
         if [ -f kernel/kpm/super_access.c ]; then
-          echo "Fixing KPM super_access.c for kernel 6.12 compatibility..."
-          python3 << 'PYEOF'
-        with open('kernel/kpm/super_access.c', 'r') as f:
-            content = f.read()
-
-        if 'DEFINE_MEMBER(netlink_kernel_cfg, cb_mutex)' in content:
-            print("Patching cb_mutex for kernel 6.12 compatibility")
-            content = content.replace(
-                'DEFINE_MEMBER(netlink_kernel_cfg, cb_mutex)',
-                '#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 12, 0)\nDEFINE_MEMBER(netlink_kernel_cfg, cb_mutex)\n#endif'
-            )
-            with open('kernel/kpm/super_access.c', 'w') as f:
-                f.write(content)
-            print("cb_mutex fix applied")
-        else:
-            print("cb_mutex fix not needed")
-        PYEOF
+          echo "=== Fixing KPM super_access.c for kernel 6.12 ==="
+          if grep -q 'DEFINE_MEMBER(netlink_kernel_cfg, cb_mutex)' kernel/kpm/super_access.c; then
+            echo "Patching cb_mutex for kernel 6.12 compatibility"
+            sed -i 's/DEFINE_MEMBER(netlink_kernel_cfg, cb_mutex)/#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 12, 0)\nDEFINE_MEMBER(netlink_kernel_cfg, cb_mutex)\n#endif/' kernel/kpm/super_access.c
+            echo "cb_mutex fix applied"
+          fi
         fi
+
+        # === Step 7: Clean up .rej files ===
+        echo "=== Cleaning up .rej files ==="
+        find kernel -name "*.rej" -delete 2>/dev/null || true
+        find kernel -name "*.orig" -delete 2>/dev/null || true
 
         echo "✅ SukiSU Ultra compatibility fixes applied"
         echo "::endgroup::"
