@@ -1491,79 +1491,79 @@ runs:
           if [ "${{ env.OP_SUSFS }}" = "true" ] && ! grep -q 'config KSU_SUSFS' "$KCONFIG_FILE"; then
             echo "Adding SUSFS Kconfig options"
             KCONFIG_SUSFS=$(mktemp)
-            cat > "$KCONFIG_SUSFS" << 'KCEOF'
-
-menu "KernelSU - SUSFS"
-config KSU_SUSFS
-	bool "KernelSU addon - SUSFS"
-	depends on KSU
-	depends on THREAD_INFO_IN_TASK
-	default y
-	help
-	  Patch and Enable SUSFS to kernel with KernelSU.
-
-config KSU_SUSFS_SUS_PATH
-	bool "Enable to hide suspicious path"
-	depends on KSU_SUSFS
-	default y
-
-config KSU_SUSFS_HAS_MAGIC_MOUNT
-	bool "SUSFS has magic mount support"
-	depends on KSU_SUSFS
-	default y
-
-config KSU_SUSFS_SUS_MOUNT
-	bool "Enable to hide suspicious mounts"
-	depends on KSU_SUSFS
-	default y
-
-config KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT
-	bool "Auto add KSU default mount to hiding"
-	depends on KSU_SUSFS_SUS_MOUNT
-	default y
-
-config KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT
-	bool "Auto add bind mount to hiding"
-	depends on KSU_SUSFS_SUS_MOUNT
-	default y
-
-config KSU_SUSFS_SUS_KSTAT
-	bool "Enable to spoof suspicious kstat"
-	depends on KSU_SUSFS
-	default y
-
-config KSU_SUSFS_SPOOF_UNAME
-	bool "Enable to spoof uname"
-	depends on KSU_SUSFS
-	default y
-
-config KSU_SUSFS_ENABLE_LOG
-	bool "Enable logging susfs log to kernel"
-	depends on KSU_SUSFS
-	default y
-
-config KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS
-	bool "Enable to automatically hide ksu and susfs symbols"
-	depends on KSU_SUSFS
-	default y
-
-config KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG
-	bool "Enable to spoof /proc/bootconfig or /proc/cmdline"
-	depends on KSU_SUSFS
-	default y
-
-config KSU_SUSFS_OPEN_REDIRECT
-	bool "Enable to redirect a path to be opened with another path"
-	depends on KSU_SUSFS
-	default y
-
-config KSU_SUSFS_SUS_MAP
-	bool "Enable to hide some mmapped real file from proc maps"
-	depends on KSU_SUSFS
-	default y
-
-endmenu
-KCEOF
+            {
+              echo ''
+              echo 'menu "KernelSU - SUSFS"'
+              echo 'config KSU_SUSFS'
+              echo $'\tbool "KernelSU addon - SUSFS"'
+              echo $'\tdepends on KSU'
+              echo $'\tdepends on THREAD_INFO_IN_TASK'
+              echo $'\tdefault y'
+              echo $'\thelp'
+              echo $'\t  Patch and Enable SUSFS to kernel with KernelSU.'
+              echo ''
+              echo 'config KSU_SUSFS_SUS_PATH'
+              echo $'\tbool "Enable to hide suspicious path"'
+              echo $'\tdepends on KSU_SUSFS'
+              echo $'\tdefault y'
+              echo ''
+              echo 'config KSU_SUSFS_HAS_MAGIC_MOUNT'
+              echo $'\tbool "SUSFS has magic mount support"'
+              echo $'\tdepends on KSU_SUSFS'
+              echo $'\tdefault y'
+              echo ''
+              echo 'config KSU_SUSFS_SUS_MOUNT'
+              echo $'\tbool "Enable to hide suspicious mounts"'
+              echo $'\tdepends on KSU_SUSFS'
+              echo $'\tdefault y'
+              echo ''
+              echo 'config KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT'
+              echo $'\tbool "Auto add KSU default mount to hiding"'
+              echo $'\tdepends on KSU_SUSFS_SUS_MOUNT'
+              echo $'\tdefault y'
+              echo ''
+              echo 'config KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT'
+              echo $'\tbool "Auto add bind mount to hiding"'
+              echo $'\tdepends on KSU_SUSFS_SUS_MOUNT'
+              echo $'\tdefault y'
+              echo ''
+              echo 'config KSU_SUSFS_SUS_KSTAT'
+              echo $'\tbool "Enable to spoof suspicious kstat"'
+              echo $'\tdepends on KSU_SUSFS'
+              echo $'\tdefault y'
+              echo ''
+              echo 'config KSU_SUSFS_SPOOF_UNAME'
+              echo $'\tbool "Enable to spoof uname"'
+              echo $'\tdepends on KSU_SUSFS'
+              echo $'\tdefault y'
+              echo ''
+              echo 'config KSU_SUSFS_ENABLE_LOG'
+              echo $'\tbool "Enable logging susfs log to kernel"'
+              echo $'\tdepends on KSU_SUSFS'
+              echo $'\tdefault y'
+              echo ''
+              echo 'config KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS'
+              echo $'\tbool "Enable to automatically hide ksu and susfs symbols"'
+              echo $'\tdepends on KSU_SUSFS'
+              echo $'\tdefault y'
+              echo ''
+              echo 'config KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG'
+              echo $'\tbool "Enable to spoof /proc/bootconfig or /proc/cmdline"'
+              echo $'\tdepends on KSU_SUSFS'
+              echo $'\tdefault y'
+              echo ''
+              echo 'config KSU_SUSFS_OPEN_REDIRECT'
+              echo $'\tbool "Enable to redirect a path to be opened with another path"'
+              echo $'\tdepends on KSU_SUSFS'
+              echo $'\tdefault y'
+              echo ''
+              echo 'config KSU_SUSFS_SUS_MAP'
+              echo $'\tbool "Enable to hide some mmapped real file from proc maps"'
+              echo $'\tdepends on KSU_SUSFS'
+              echo $'\tdefault y'
+              echo ''
+              echo 'endmenu'
+            } > "$KCONFIG_SUSFS"
             # Insert before the last "endmenu"
             awk -v susfsfile="$KCONFIG_SUSFS" '
             /^endmenu/ { last_endmenu = NR }
