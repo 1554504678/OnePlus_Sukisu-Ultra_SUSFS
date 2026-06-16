@@ -1079,13 +1079,7 @@ runs:
               patch -p1 --forward --fuzz=3 < "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/fix_ksud.c.patch"
             elif [ "${{ inputs.ksu_type }}" = "KSUX" ]; then
               cd "$KSUX_FOLDER"
-              patch -p1 --forward --fuzz=3 < "$SUSFS_FOLDER/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch" || true
-              for file in $(find ./kernel -maxdepth 2 -name "*.rej" -printf "%f\n" 2>/dev/null | cut -d'.' -f1); do
-                if [ -f "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/fix_$file.c.patch" ]; then
-                  echo "Patching file: $file.c with fix_$file.c.patch"
-                  patch -p1 --forward --fuzz=3 < "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/fix_$file.c.patch" || true
-                fi
-              done
+              echo "Skipping SUSFS KSU patch for SukiSU Ultra (hooks added in fix step)"
             else
               cd "$KSU_FOLDER"
               patch -p1 --forward --fuzz=3 < "$SUSFS_FOLDER/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch"
@@ -1102,16 +1096,7 @@ runs:
               patch -p1 --forward < "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/fix_kernel_compat.c.patch"
             elif [ "${{ inputs.ksu_type }}" = "KSUX" ]; then
               cd "$KSUX_FOLDER"
-              patch -p1 --forward < "$SUSFS_FOLDER/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch" || true
-              for file in $(find ./kernel -maxdepth 2 -name "*.rej" -printf "%f\n" 2>/dev/null | cut -d'.' -f1); do
-                if [ -f "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/fix_$file.c.patch" ]; then
-                  echo "Patching file: $file.c with fix_$file.c.patch"
-                  patch -p1 --forward < "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/fix_$file.c.patch" || true
-                fi
-              done
-              if [ -f "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/fix_kernel_compat.c.patch" ]; then
-                patch -p1 --forward < "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/fix_kernel_compat.c.patch" || true
-              fi
+              echo "Skipping SUSFS KSU patch for SukiSU Ultra (hooks added in fix step)"
             else
               cd "$KSU_FOLDER"
               patch -p1 --forward < "$SUSFS_FOLDER/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch"
@@ -1139,21 +1124,7 @@ runs:
               fi
             elif [ "${{ inputs.ksu_type }}" = "KSUX" ]; then
               cd "$KSUX_FOLDER"
-              patch -p1 --forward < "$SUSFS_FOLDER/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch" || true
-              for file in $(find ./kernel -maxdepth 2 -name "*.rej" -exec basename {} .rej \; 2>/dev/null); do
-                if [ -f "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/fix_$file.patch" ]; then
-                  echo "Patching file: $file with fix_$file.patch"
-                  patch -p1 --forward < "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/fix_$file.patch" || true
-                fi
-              done
-              if [ -f "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/overwrite_hook_mode.patch" ]; then
-                echo "Patching Hook Mode!"
-                patch -p1 --forward < "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/overwrite_hook_mode.patch" || true
-              fi
-              if [ -f "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/ksu_toolkit.patch" ]; then
-                echo "Patching KSU_TOOLKIT Support for SusFS kernel!"
-                patch -p1 --forward < "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/ksu_toolkit.patch" || true
-              fi
+              echo "Skipping SUSFS KSU patch for SukiSU Ultra (hooks added in fix step)"
             else
               cd "$KSU_FOLDER"
               patch -p1 --forward < "$SUSFS_FOLDER/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch" || true
@@ -1181,21 +1152,7 @@ runs:
               fi
             elif [ "${{ inputs.ksu_type }}" = "KSUX" ]; then
               cd "$KSUX_FOLDER"
-              patch -p1 --forward < "$SUSFS_FOLDER/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch" || true
-              for file in $(find ./kernel -maxdepth 2 -name "*.rej" -exec basename {} .rej \; 2>/dev/null); do
-                if [ -f "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/fix_$file.patch" ]; then
-                  echo "Patching file: $file with fix_$file.patch"
-                  patch -p1 --forward < "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/fix_$file.patch" || true
-                fi
-              done
-              if [ -f "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/overwrite_hook_mode.patch" ]; then
-                echo "Patching Hook Mode!"
-                patch -p1 --forward < "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/overwrite_hook_mode.patch" || true
-              fi
-              if [ -f "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/ksu_toolkit.patch" ]; then
-                echo "Patching KSU_TOOLKIT Support for SusFS kernel!"
-                patch -p1 --forward < "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/ksu_toolkit.patch" || true
-              fi
+              echo "Skipping SUSFS KSU patch for SukiSU Ultra (hooks added in fix step)"
             else
               cd "$KSU_FOLDER"
               patch -p1 --forward < "$SUSFS_FOLDER/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch" || true
@@ -1346,68 +1303,46 @@ runs:
         echo "::group::Fix SukiSU Ultra Compatibility"
         cd "$KSUX_FOLDER"
 
+        # Since we skipped the SUSFS 10_enable_susfs_for_ksu.patch for KSUX,
+        # SukiSU Ultra's init.c is intact. We just need to add SUSFS hooks manually.
         if [ -f kernel/core/init.c ]; then
-          echo "Fixing init.c for SukiSU Ultra compatibility..."
+          echo "Adding SUSFS hooks to SukiSU Ultra init.c..."
           python3 << 'PYEOF'
-        import sys
-
         with open('kernel/core/init.c', 'r') as f:
             content = f.read()
 
         original = content
 
-        # 1. Restore #include "hook/syscall_hook_manager.h" if removed by SUSFS patch
-        if 'syscall_hook_manager' not in content:
-            print("Restoring #include hook/syscall_hook_manager.h")
+        # Add #include <linux/ksu_susfs.h> after last #include
+        if 'ksu_susfs' not in content:
             lines = content.split('\n')
             last_include_idx = 0
             for i, line in enumerate(lines):
                 if line.strip().startswith('#include'):
                     last_include_idx = i
-            lines.insert(last_include_idx + 1, '#include "hook/syscall_hook_manager.h"')
+            lines.insert(last_include_idx + 1, '#include <linux/ksu_susfs.h>')
             content = '\n'.join(lines)
 
-        # 2. Restore bool ksu_late_loaded; if removed by SUSFS patch
-        if 'ksu_late_loaded' not in content:
-            print("Restoring bool ksu_late_loaded declaration")
-            if 'struct cred *ksu_cred;' in content:
-                content = content.replace(
-                    'struct cred *ksu_cred;',
-                    'struct cred *ksu_cred;\nbool ksu_late_loaded;'
-                )
-            elif 'module_param(allow_shell' in content:
-                content = content.replace(
-                    'module_param(allow_shell',
-                    'bool ksu_late_loaded;\nmodule_param(allow_shell'
-                )
-            else:
-                content = content.replace(
-                    '#define NEED_OWN_STACKPROTECTOR 0',
-                    '#define NEED_OWN_STACKPROTECTOR 0\nbool ksu_late_loaded;'
-                )
-
-        # 3. Restore ksu_syscall_hook_manager_init() calls if removed by SUSFS patch
-        if 'ksu_syscall_hook_manager_init' not in content:
-            print("Restoring ksu_syscall_hook_manager_init() calls")
+        # Add ksu_susfs_init() after ksu_syscall_hook_init()
+        if 'ksu_susfs_init' not in content:
             content = content.replace(
-                'ksu_allowlist_init();',
-                'ksu_allowlist_init();\n\t\tksu_syscall_hook_manager_init();'
+                'ksu_syscall_hook_init();',
+                'ksu_syscall_hook_init();\n\tksu_susfs_init();'
             )
 
-        # 4. Restore ksu_syscall_hook_manager_exit() call if removed by SUSFS patch
-        if 'ksu_syscall_hook_manager_exit' not in content:
-            print("Restoring ksu_syscall_hook_manager_exit() call")
+        # Add ksu_susfs_exit() before ksu_supercalls_exit()
+        if 'ksu_susfs_exit' not in content:
             content = content.replace(
                 'ksu_supercalls_exit();',
-                'ksu_syscall_hook_manager_exit();\n\tksu_supercalls_exit();'
+                'ksu_susfs_exit();\n\tksu_supercalls_exit();'
             )
 
         if content != original:
             with open('kernel/core/init.c', 'w') as f:
                 f.write(content)
-            print("init.c compatibility fixes applied")
+            print("SUSFS hooks added to init.c")
         else:
-            print("init.c: no fixes needed")
+            print("init.c: no changes needed")
         PYEOF
         fi
 
